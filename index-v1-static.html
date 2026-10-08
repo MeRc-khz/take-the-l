@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Take the 'L' — Classification Yard Rush</title>
+<style>
+:root{--bg:#14100c;--panel:#1f1913;--rail:#3a3129;--gold:#e8c878;--amber:#ff6b35;--text:#f5efe4;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{height:100%;overflow:hidden;background:var(--bg);font-family:'Courier New',monospace;color:var(--text);touch-action:manipulation;}
+#app{display:flex;flex-direction:column;height:100%;max-width:520px;margin:0 auto;}
+header{padding:6px 10px;background:var(--panel);display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--rail);font-size:12px;}
+header .brand{font-weight:bold;color:var(--gold);letter-spacing:1px;}
+header .stat{margin-left:14px;} header .stat b{color:var(--amber);}
+#yard{flex:1;position:relative;overflow:hidden;background:linear-gradient(#191410,#14100c);}
+#inbox{position:absolute;top:0;left:0;right:0;height:26%;background:#0d0b08;border-bottom:2px dashed var(--amber);display:flex;align-items:center;justify-content:flex-start;gap:4px;padding:4px;overflow-x:auto;}
+#inbox::before{content:"INCOMING ➜";position:sticky;left:2px;font-size:9px;color:var(--amber);writing-mode:vertical-rl;transform:rotate(180deg);}
+.track{position:absolute;left:0;right:0;height:15%;border-bottom:3px solid var(--rail);display:flex;align-items:flex-end;padding:2px 4px;gap:2px;transition:background .15s;}
+.track .tie{position:absolute;left:0;right:0;top:60%;height:14px;background:repeating-linear-gradient(90deg,#2a231c 0 6px,transparent 6px 14px);}
+.track .lbl{position:absolute;right:4px;top:2px;font-size:9px;color:var(--gold);background:rgba(0,0,0,.55);padding:1px 6px;border-radius:4px;letter-spacing:1px;}
+.track.valid{background:rgba(232,200,120,.08);}
+.track.flash-ok{background:rgba(80,220,120,.25);} .track.flash-bad{background:rgba(220,60,60,.25);}
+.car{min-width:46px;height:38px;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:8px;font-weight:bold;color:#111;position:relative;flex-shrink:0;box-shadow:0 2px 4px rgba(0,0,0,.5);cursor:pointer;border:2px solid rgba(0,0,0,.35);}
+.car .wheels{position:absolute;bottom:-5px;left:6px;right:6px;height:5px;background:repeating-linear-gradient(90deg,#000 0 4px,transparent 4px 8px);}
+.car.eng{border-radius:8px 4px 4px 8px;} .car.eng::after{content:"🚂";}
+.car.cab{border-radius:4px 8px 8px 4px;} .car.cab::after{content:"🛤";}
+#hud{padding:8px;background:var(--panel);border-top:2px solid var(--rail);display:flex;gap:8px;align-items:center;justify-content:space-between;}
+#hud .goal{font-size:11px;} #hud .goal b{color:var(--gold);}
+button{font-family:inherit;background:var(--amber);color:#14100c;border:none;padding:10px 16px;border-radius:8px;font-weight:bold;font-size:14px;letter-spacing:1px;}
+button:active{transform:scale(.96);}
+#overlay{position:absolute;inset:0;background:rgba(10,8,6,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;z-index:50;}
+#overlay h1{font-size:26px;color:var(--gold);margin-bottom:8px;letter-spacing:2px;}
+#overlay p{font-size:12px;color:var(--text);max-width:340px;line-height:1.5;margin-bottom:14px;}
+#toast{position:absolute;top:28%;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--gold);padding:6px 14px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .3s;z-index:40;white-space:nowrap;}
+</style>
+</head>
+<body>
+<div id="app">
+<header><span class="brand">TAKE THE 'L'</span><span class="stat">Score <b id="score">0</b></span><span class="stat">Day <b id="level">1</b></span><span class="stat">⏱ <b id="time">90</b></span></header>
+<div id="yard">
+  <div id="inbox"></div>
+  <div id="tracks"></div>
+  <div id="toast"></div>
+  <div id="overlay">
+    <h1>🚂 TAKE THE 'L'</h1>
+    <p>Classification Yard Rush.<br><br>
+    Rail cars roll into the yard — tap a car, then tap a track to send it there.<br><br>
+    Each track's destination panel shows what it needs: <b>color + cargo type</b>. A train needs an <b>ENGINE</b> first and a <b>CABOOSE</b> last — anything else is rejected. Fill a track in order and it ships out for points.<br><br>
+    Beat the clock. Wrong cars = penalties.</p>
+    <button id="startBtn">START SHIFT</button>
+  </div>
+</div>
+<div id="hud"><span class="goal">Next shipment: <b id="goalTxt">—</b></span><button id="shipBtn">DEPART ✓</button></div>
+</div>
+<script>
+// ===== GAME DATA =====
+const CARGO=[
+ {id:'fuel', name:'TANKER', label:'LIQUID', color:'#5aa9e6', icon:'🛢'},
+ {id:'auto', name:'AUTORACK',label:'AUTOS', color:'#e6b35a', icon:'🚗'},
+ {id:'grain',name:'GRAIN',  label:'GRAIN', color:'#8fce6a', icon:'🌾'},
+ {id:'coal', name:'HOPPER', label:'COAL',  color:'#9a9a9a', icon:'🪨'},
+ {id:'box',  name:'BOXCAR', label:'FREIGHT',color:'#d96a6a', icon:'📦'},
+ {id:'ice',  name:'REEFER', label:'COLD',   color:'#b58ae6', icon:'🧊'}
+];
+const DEST=[
+ {id:'chi', name:'CHICAGO', icon:'🌆'},
+ {id:'dal', name:'DALLAS',  icon:'🤠'},
+ {id:'sea', name:'SEATTLE', icon:'🌲'},
+ {id:'mia', name:'MIAMI',   icon:'🌴'}
+];
+const KINDS=['car','eng','cab'];
+let state={running:false,score:0,level:1,time:90,tracks:[],selected:null,timer:null};
+
+
+// ===== HELPERS =====
+function rnd(a){return a[Math.floor(Math.random()*a.length)];}
+function el(id){return document.getElementById(id);}
+function toast(msg){const t=el('toast');t.textContent=msg;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,1100);}
+function carLabel(c){return c.kind==='eng'?'ENGINE':c.kind==='cab'?'CABOOSE':c.cargo.label;}
+
+function makeCar(kind){
+ const c={kind, cargo:kind==='car'?rnd(CARGO):null, dom:null};
+ const d=document.createElement('div');
+ d.className='car '+(kind==='eng'?'eng':kind==='cab'?'cab':'');
+ const bg=kind==='eng'?'#e8c878':kind==='cab'?'#f5efe4':c.cargo.color;
+ d.style.background=bg;
+ const txt=kind==='eng'?'ENGINE':kind==='cab'?'CABOOSE':c.cargo.icon+' '+c.cargo.label;
+ d.innerHTML='<span>'+txt+'</span><div class="wheels"></div>';
+ d.addEventListener('click',ev=>{ev.stopPropagation();selectCar(c);});
+ c.dom=d; return c;
+}
+
+function selectCar(c){
+ if(!state.running)return;
+ if(state.selected) state.selected.dom.style.outline='';
+ state.selected=c;
+ c.dom.style.outline='3px solid var(--amber)';
+ toast(carLabel(c)+' selected — tap a track');
+}
+
+// ===== BOARD =====
+function buildTracks(){
+ const T=el('tracks'); T.innerHTML=''; state.tracks=[];
+ const n=3+Math.min(2,state.level-1);
+ for(let i=0;i<n;i++){
+  const dst=rnd(DEST), cargo=rnd(CARGO);
+  const tr=document.createElement('div'); tr.className='track';
+  tr.innerHTML='<div class="tie"></div><span class="lbl">'+dst.icon+' '+dst.name+' · NEEDS '+cargo.label+'</span><div class="cars" style="display:flex;gap:2px;flex-wrap:nowrap;overflow-x:auto;width:100%"></div>';
+  tr.addEventListener('click',()=>dropCar(i));
+  T.appendChild(tr);
+  state.tracks.push({el:tr,dst,cargo, carsEl:tr.querySelector('.cars'), cars:[], hasEng:false, hasCab:false});
+ }
+}
+
+function dropCar(ti){
+ if(!state.running||!state.selected)return;
+ const c=state.selected, tr=state.tracks[ti];
+ state.selected=null; c.dom.style.outline='';
+ if(tr.hasCab){flash(tr,'flash-bad');toast('CABOOSE must be last!');return;}
+ if(c.kind==='eng'){
+  if(tr.cars.length){flash(tr,'flash-bad');toast('ENGINE goes FIRST');return;}
+  tr.hasEng=true;
+ }else if(c.kind==='cab'){
+  if(!tr.hasEng){flash(tr,'flash-bad');toast('Need an ENGINE first!');return;}
+  if(tr.cars.filter(x=>x.kind==='car').length<2){flash(tr,'flash-bad');toast('Load at least 2 cars before CABOOSE');return;}
+  tr.hasCab=true;
+ }else{
+  if(!tr.hasEng){flash(tr,'flash-bad');toast('Track needs an ENGINE first!');return;}
+  if(c.cargo.id!==tr.cargo.id){flash(tr,'flash-bad');toast('Wrong cargo! This track takes '+tr.cargo.label);state.score=Math.max(0,state.score-5);el('score').textContent=state.score;return;}
+ }
+ tr.carsEl.appendChild(c.dom); tr.cars.push(c);
+ if(tr.hasCab) flash(tr,'flash-ok');
+ checkComplete(tr);
+}
+
+function flash(tr,cls){tr.el.classList.add(cls);setTimeout(()=>tr.el.classList.remove(cls),350);}
+
+function checkComplete(tr){
+ const cars=tr.cars.filter(x=>x.kind==='car');
+ if(tr.hasEng&&tr.hasCab&&cars.length>=2){
+  const pts=10*cars.length+tr.cars.length*2;
+  state.score+=pts; el('score').textContent=state.score;
+  toast('✅ '+tr.dst.name+' DEPARTED! +'+pts);
+  tr.el.querySelectorAll('.car').forEach(c=>c.remove());
+  Object.assign(tr,{cars:[],hasEng:false,hasCab:false,cargo:rnd(CARGO),dst:rnd(DEST)});
+  tr.el.querySelector('.lbl').textContent=tr.dst.icon+' '+tr.dst.name+' · NEEDS '+tr.cargo.label;
+  // new car for the queue
+  spawnCar();
+ }
+}
+
+
+// ===== QUEUE =====
+function spawnCar(){
+ const r=Math.random();
+ const kind=r<.12?'eng':r<.24?'cab':'car';
+ const c=makeCar(kind);
+ el('inbox').appendChild(c.dom);
+}
+function queueLen(){return el('inbox').querySelectorAll('.car').length;}
+function refillQueue(){while(queueLen()<6)spawnCar();}
+
+// ===== LOOP =====
+function tick(){
+ state.time--; el('time').textContent=state.time;
+ if(state.time<=0) endGame();
+ // pressure: keep queue full, faster spawn at higher levels
+ if(queueLen()<3+Math.floor(state.level/2)) refillQueue();
+ if(state.time%20===0){state.level++;el('level').textContent=state.level;toast('DAY '+state.level+' — more tracks, more cars!');buildTracks();}
+}
+
+function startGame(){
+ state={running:true,score:0,level:1,time:90,tracks:[],selected:null,timer:null};
+ el('score').textContent=0; el('level').textContent=1; el('time').textContent=90;
+ el('inbox').innerHTML=''; el('overlay').style.display='none';
+ buildTracks(); refillQueue();
+ state.timer=setInterval(tick,1000);
+ el('goalTxt').textContent='match color + cargo, engine first, caboose last';
+}
+function endGame(){
+ state.running=false; clearInterval(state.timer);
+ el('overlay').style.display='flex';
+ el('overlay').innerHTML='<h1>SHIFT OVER</h1><p>You classified <b style="color:var(--gold)">'+state.score+'</b> points over '+state.level+' day(s).<br><br>The yard never sleeps. Ready for another shift?</p><button onclick="location.reload()">NEXT SHIFT</button>';
+}
+el('startBtn').addEventListener('click',startGame);
+el('shipBtn').addEventListener('click',()=>{ if(state.running){state.time+=5;el('time').textContent=state.time;toast('+5s departure bonus');}});
+</script>
+</body>
+</html>
+

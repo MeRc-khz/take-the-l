@@ -1,0 +1,12 @@
+# deps
+node_modules/
+dist/
+
+# scratch
+.DS_Store
+*.log
+.scratch/
+
+# env
+.env
+.env.*
