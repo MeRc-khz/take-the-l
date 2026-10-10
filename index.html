@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Take the 'L' — Zig-Zag Yard</title>
+<title>Take the 'L' — Switchback Yard</title>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <style>
 :root{--bg:#14100c;--panel:#1f1913;--rail:#3a3129;--gold:#e8c878;--amber:#ff6b35;--text:#f5efe4;}
@@ -65,7 +65,9 @@ button:active{transform:scale(.96);}
 <div id="toast"></div>
 <div id="overlay">
   <h1>🚂 TAKE THE 'L'</h1>
-  <p>The inbound train <b>zig-zags down</b> from the top of the yard. Each level sends a longer train with more engines to catch.<br><br>
+  <p>The inbound train <b>runs flat across the yard</b>, slips behind the tunnel
+  to drop one train height, and comes back the other way. Each level sends a
+  longer train with more engines to catch.<br><br>
   <b>Tap the engines</b> on the train to save them. <b>Tap a car</b> to grab it, then <b>tap a track</b> to load it.<br><br>
   Cars arrive in colour groups of 2–5. A track only takes cars once it has an <b>engine</b>, and only one colour at a time — fill the whole group to ship it and empty the track.<br><br>
   Out of engines? <b>Buy one with your points.</b></p>
@@ -106,25 +108,38 @@ const TW=(function(){
   cam.mode=BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
   const matCache=new Map();
   const CAR_W=2.25, CAR_H=0.92;
-  let halfH=7, path={pts:[{x:-6.4,y:6.3},{x:6.4,y:-6.3}],cum:[0,1],len:1};
-  let lastT=0;
+  let halfH=7, path={pts:[{x:-6.4,y:6},{x:6.4,y:-6}],cum:[0,1],len:1,tunnels:[]}, lastT=0;
 
-  /* A zig-zag polyline running top → bottom, built to fill the visible strip. */
+  /* The train enters at the top, runs flat across the yard, drops exactly one
+     train height behind a tunnel mouth, then runs back the other way — a
+     switchback through stacked mountain tunnels. */
   function buildPath(hh){
-    const top=hh*0.88, bot=-hh*0.88, legs=5, dy=(top-bot)/legs, A=-6.4, B=6.4;
-    const pts=[{x:A,y:top}];
-    for(let i=0;i<legs;i++) pts.push({x:(i%2===0?B:A), y:top-dy*(i+1)});
+    const A=-6.4, B=6.4;
+    const top=hh*0.90, bot=-hh*0.90, usable=top-bot;
+    const laneH=CAR_H*1.75;                       // one train height per row
+    const lanes=Math.max(2, Math.floor(usable/laneH));
+    const step=usable/lanes;
+    const pts=[{x:A,y:top}], tunnels=[];
+    let y=top;
+    for(let k=0;k<lanes;k++){
+      const xEnd=(k%2===0)?B:A;
+      pts.push({x:xEnd,y});                       // run across the screen
+      y-=step;
+      pts.push({x:xEnd,y});                       // drop behind the tunnel
+      tunnels.push({x:xEnd, y:y+step/2, h:step+CAR_H*0.5});
+    }
     const cum=[0];
     for(let i=1;i<pts.length;i++){
       cum.push(cum[i-1]+Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y));
     }
-    return {pts,cum,len:cum[cum.length-1]};
+    return {pts,cum,len:cum[cum.length-1],tunnels};
   }
   function fit(){
     const w=canvas.clientWidth||300, h=canvas.clientHeight||200;
     halfH=10*h/w;
     cam.orthoLeft=-10; cam.orthoRight=10; cam.orthoTop=halfH; cam.orthoBottom=-halfH;
     path=buildPath(halfH);
+    rebuildTunnels();
   }
   function segAt(s){
     const {pts,cum}=path;
@@ -144,9 +159,35 @@ const TW=(function(){
     const t=(s-cum[ai])/((cum[bi]-cum[ai])||1);
     return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t};
   }
-  function tangentAt(s){
-    const {pts}=path, [ai,bi]=segAt(s);
-    return {x:pts[bi].x-pts[ai].x, y:pts[bi].y-pts[ai].y};
+  /* Tunnel mouths: rock face with a dark arch, drawn just in front of the
+     train so a consist vanishing into the corner reads as entering the hill. */
+  let tunnelMat=null, tunnelMeshes=[];
+  function tunnelMaterial(){
+    if(tunnelMat) return tunnelMat;
+    const tex=new BABYLON.DynamicTexture('tun',{width:128,height:160},scene,false);
+    const ctx=tex.getContext();
+    ctx.fillStyle='#241d16'; ctx.fillRect(0,0,128,160);
+    ctx.fillStyle='#2e251c'; ctx.fillRect(0,0,128,24);
+    ctx.fillStyle='#0b0907';
+    ctx.beginPath();
+    ctx.moveTo(16,160); ctx.lineTo(16,78);
+    ctx.quadraticCurveTo(64,8,112,78);
+    ctx.lineTo(112,160); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#4a3d2e'; ctx.lineWidth=5; ctx.stroke();
+    tex.update();
+    tunnelMat=new BABYLON.StandardMaterial('mt',scene);
+    tunnelMat.diffuseTexture=tex; tunnelMat.emissiveTexture=tex;
+    tunnelMat.specularColor=new BABYLON.Color3(0,0,0); tunnelMat.backFaceCulling=false;
+    return tunnelMat;
+  }
+  function rebuildTunnels(){
+    tunnelMeshes.forEach(m=>m.dispose()); tunnelMeshes=[];
+    path.tunnels.forEach(t=>{
+      const m=BABYLON.MeshBuilder.CreatePlane('tunnel',{width:1.95,height:t.h},scene);
+      m.material=tunnelMaterial();
+      m.position.x=t.x; m.position.y=t.y; m.position.z=-0.25;   // in front of the train
+      tunnelMeshes.push(m);
+    });
   }
   function materialFor(entry){
     const key=entry.kind==='eng'?'eng':'c_'+entry.cargo.id;
@@ -188,9 +229,8 @@ const TW=(function(){
         e.s=s;
         if(s<-1.6){ e.mesh.setEnabled(false); return; }
         e.mesh.setEnabled(true);
-        const p=pointAt(s), t=tangentAt(s);
-        e.mesh.position.x=p.x; e.mesh.position.y=p.y;
-        e.mesh.rotation.z=Math.atan2(t.y,t.x);
+        const p=pointAt(s);
+        e.mesh.position.x=p.x; e.mesh.position.y=p.y;   // cars stay level; the hill hides the turn
       });
       updateHud();
       levelTick();

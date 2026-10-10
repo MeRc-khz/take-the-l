@@ -1,7 +1,8 @@
-# Take the 'L' — Zig-Zag Yard
+# Take the 'L' — Switchback Yard
 
-A mobile-first rail-yard sorting game. Each level an inbound train **zig-zags
-down** from the top of the yard — longer and with more engines the deeper you go.
+A mobile-first rail-yard sorting game. Each level an inbound train **runs flat
+across the yard**, slips behind a tunnel to drop one train height, and comes
+back the other way — longer and with more engines the deeper you go.
 
 - **Tap the engines** on the train to save them into your shed.
 - **Tap a car** to grab it, then **tap a vertical track** to load it.
@@ -19,7 +20,7 @@ Live: https://takethel.game4real.us
 
 | File | Purpose |
 |------|---------|
-| `index.html` | Current build — zig-zag inbound train (Babylon.js), vertical tracks, engine shed, buy-with-points |
+| `index.html` | Current build — switchback inbound train through tunnels (Babylon.js), vertical tracks, engine shed, buy-with-points |
 | `index-v1-static.html` | Original static v1 (kept for reference) |
 | `gameplay.png` | Gameplay screenshot |
 | `overlay.png` | Overlay / OG art |
