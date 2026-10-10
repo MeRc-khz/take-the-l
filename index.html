@@ -36,7 +36,8 @@ header .stat b{color:var(--amber);}
 #hud{padding:6px 10px;background:var(--panel);border-top:2px solid var(--rail);display:flex;flex-direction:column;gap:5px;font-size:10px;}
 #hint{line-height:1.35;}
 #hudBtns{display:flex;gap:6px;}
-#hudBtns button{flex:1;font-size:11px;padding:8px 6px;}
+#hudBtns button{flex:1;font-size:10px;padding:8px 3px;letter-spacing:0;}
+.unit.car.wild{border-color:#8a6f1f;box-shadow:0 0 0 2px rgba(240,210,100,.35),0 2px 4px rgba(0,0,0,.5);}
 button:disabled{opacity:.42;}
 .unit.cab{height:26px;background:#f5efe4;}
 button{font-family:inherit;background:var(--amber);color:#14100c;border:none;padding:9px 12px;border-radius:8px;font-weight:bold;font-size:12px;letter-spacing:1px;}
@@ -65,8 +66,9 @@ button:active{transform:scale(.96);}
 <div id="hud">
   <span id="hint">Tap engines to save them · tap a car then a track</span>
   <div id="hudBtns">
-    <button id="engBtn">🚂 ENGINE · 40</button>
-    <button id="cabBtn">🚋 CABOOSE · 25</button>
+    <button id="engBtn">🚂 ENGINE 40</button>
+    <button id="cabBtn">🚋 CABOOSE 10</button>
+    <button id="wildBtn">🃏 WILD 30</button>
   </div>
 </div>
 <div id="toast"></div>
@@ -79,7 +81,9 @@ button:active{transform:scale(.96);}
   Cars arrive in colour batches of 2–5. A track only takes cars once it has an <b>engine</b>, and only one colour at a time — stack as long as you like.<br><br>
   At <b>3 cars or more</b>, buy a <b>caboose</b> to close the train and move it off the track so you can start another one. <b>The longer the train, the more it pays.</b><br><br>
   Every train you send out also <b>backs the inbound train up one switchback level</b> — up to one level per track in the yard.<br><br>
-  Engines and cabooses both cost points — <b>stack long, but don't strand a train.</b></p>
+  Tapped a track with only 1–2 cars and it <b>shunts them back onto the back of the inbound train</b> — −6 a car, and they have to ride the whole hill again.<br><br>
+  <b>🃏 Wild cards</b> join any colour already on a track. Buy one for 30, or grab one off the main train when it rides past.<br><br>
+  Everything costs points — <b>stack long, but don't strand a train.</b></p>
   <button id="startBtn">START SHIFT</button>
 </div>
 </div>
@@ -98,6 +102,10 @@ const CARGO=[
 ];
 const ENGINE_COST=40;     // points to buy a replacement engine
 const CABOOSE_COST=10;    // points to buy a caboose and move a train off the track
+const WILD_COST=30;       // points to buy a wild card that joins any colour
+const SHUNT_PENALTY=6;    // points per car for shunting a short train back onto the inbound
+const WILD_CHANCE=0.22;   // chance a batch brings a wild card riding the main train
+const WILD_PER_LEVEL=3;   // most wild cards a single inbound train can carry
 const MIN_TRAIN_CARS=3;   // cars needed (after the engine) before a train can close
 const TRACK_COUNT=4;      // vertical tracks
 const SPACING=1.55;       // world distance between coupled cars
@@ -201,13 +209,18 @@ const TW=(function(){
     });
   }
   function materialFor(entry){
-    const key=entry.kind==='eng'?'eng':'c_'+entry.cargo.id;
+    const key=entry.kind==='eng'?'eng':entry.kind==='wild'?'wild':'c_'+entry.cargo.id;
     if(matCache.has(key)) return matCache.get(key);
-    const bg=entry.kind==='eng'?'#e8c878':entry.cargo.color;
-    const txt=entry.kind==='eng'?'🚂 ENGINE':entry.cargo.icon+' '+entry.cargo.label;
+    const bg=entry.kind==='eng'?'#e8c878':entry.kind==='wild'?'#f0d264':entry.cargo.color;
+    const txt=entry.kind==='eng'?'🚂 ENGINE':entry.kind==='wild'?'🃏 WILD':entry.cargo.icon+' '+entry.cargo.label;
     const tex=new BABYLON.DynamicTexture('t_'+key,{width:256,height:112},scene,false);
     const ctx=tex.getContext();
     ctx.fillStyle=bg; ctx.fillRect(0,0,256,112);
+    if(entry.kind==='wild'){
+      // rainbow band so a wild card reads differently from any cargo colour
+      const band=['#e05a5a','#e8a13c','#e8d24a','#71c86a','#5aa9e6','#b58ae6'];
+      band.forEach((c,i)=>{ctx.fillStyle=c;ctx.fillRect(0,96+i*2,256,2);});
+    }
     ctx.fillStyle='#14100c'; ctx.font='bold 30px monospace';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(txt,128,52);
@@ -278,12 +291,15 @@ function rndInt(n){return Math.floor(Math.random()*n);}
 function buildTrain(level){
   const groups=Math.max(4, Math.min(8, 2+level));
   const cars=[];
+  let wilds=0;
   for(let g=0;g<groups;g++){
     const c=CARGO[rndInt(CARGO.length)];
     // The first batch always carries 3+, so a closeable train exists from
     // level 1 even before colours start repeating.
     const n=(g===0?3+rndInt(3):2+rndInt(4));     // batch size 2..5
     for(let i=0;i<n;i++) cars.push({kind:'car',cargo:c});
+    // a wild card occasionally rides along with a batch
+    if(wilds<WILD_PER_LEVEL && Math.random()<WILD_CHANCE){ cars.push({kind:'wild'}); wilds++; }
   }
   const engines=[];
   for(let i=0;i<groups;i++) engines.push({kind:'eng'});
@@ -317,8 +333,13 @@ function tapTrainEntry(entry){
   if(state.hand){ toast('Already holding a car — place it first'); return; }
   state.train.splice(state.train.indexOf(entry),1);
   entry.mesh.dispose();
-  state.hand={kind:'car',cargo:entry.cargo};
-  toast('Grabbed '+entry.cargo.label+' — tap a track');
+  if(entry.kind==='wild'){
+    state.hand={kind:'wild'};
+    toast('Grabbed a 🃏 WILD card — it joins any colour already on a track');
+  } else {
+    state.hand={kind:'car',cargo:entry.cargo};
+    toast('Grabbed '+entry.cargo.label+' — tap a track');
+  }
   updateHud();
 }
 function loseCar(entry){
@@ -345,20 +366,39 @@ function placeOnTrack(ti){
   // Tapping a bare track while holding a car couples an engine first, so the
   // held car is never a dead end.
   if(!tr.engine && !tryInstallEngine(tr)) return;
-  if(tr.cargo && tr.cargo.id!==e.cargo.id){ flash(tr,'flash-bad'); toast('Wrong colour — this track takes '+tr.cargo.label); return; }
-  if(!tr.cargo) tr.cargo=e.cargo;
-  tr.cars.push({cargo:e.cargo});
+  if(e.kind==='wild'){
+    if(!tr.cargo){ flash(tr,'flash-bad'); toast('A wild card needs a colour already on the track'); return; }
+    tr.cars.push({cargo:tr.cargo,wild:true});
+  } else {
+    if(tr.cargo && tr.cargo.id!==e.cargo.id){ flash(tr,'flash-bad'); toast('Wrong colour — this track takes '+tr.cargo.label); return; }
+    if(!tr.cargo) tr.cargo=e.cargo;
+    tr.cars.push({cargo:e.cargo});
+  }
   state.hand=null;
   renderTrack(tr); updateHud();
 }
-/* A bare track tap: no engine → couple one; loaded train → buy the caboose. */
+/* A bare track tap: no engine → couple one; short train → shunt it back onto
+   the inbound train at a price; 3+ cars → buy the caboose and send it out. */
 function trackAction(tr){
   if(!tr.engine){ tryInstallEngine(tr); return; }
-  if(tr.cars.length<MIN_TRAIN_CARS){
-    toast('Stack '+MIN_TRAIN_CARS+'+ cars, then buy a caboose to move it out');
-    return;
-  }
+  if(tr.cars.length<MIN_TRAIN_CARS){ shuntTrack(tr); return; }
   closeTrain(tr);
+}
+/* Push a short train back onto the tail of the inbound train: it has to ride
+   the whole switchback again, and the shunt itself costs points. */
+function shuntTrack(tr){
+  if(!state.running||tr.closing||!tr.cars.length) return;
+  const n=tr.cars.length, penalty=n*SHUNT_PENALTY;
+  state.score=Math.max(0,state.score-penalty);
+  tr.cars.forEach(c=>{
+    const entry={kind:'car',cargo:c.cargo};
+    entry.mesh=TW.makeMesh(entry);
+    entry.mesh.setEnabled(false);
+    state.train.push(entry);           // tail of the consist
+  });
+  tr.cars=[]; tr.cargo=null;           // the engine stays coupled, ready for a new colour
+  toast('↩ Shunted '+n+' car'+(n>1?'s':'')+' to the back of the inbound −'+penalty);
+  renderTrack(tr); updateHud();
 }
 function closeTrain(tr){
   if(!state.running||tr.closing||tr.cars.length<MIN_TRAIN_CARS) return;
@@ -422,8 +462,11 @@ function renderTrack(tr){
   tr.stack.innerHTML='';
   if(tr.engine){const e=document.createElement('div');e.className='unit eng';e.textContent='🚂';tr.stack.appendChild(e);}
   tr.cars.forEach(c=>{
-    const d=document.createElement('div');d.className='unit car';
-    d.style.background=c.cargo.color;d.textContent=c.cargo.icon;tr.stack.appendChild(d);
+    const d=document.createElement('div');
+    d.className='unit car'+(c.wild?' wild':'');
+    d.style.background=c.wild?'#f0d264':c.cargo.color;
+    d.textContent=c.wild?'🃏':c.cargo.icon;
+    tr.stack.appendChild(d);
   });
   if(tr.closing){const d=document.createElement('div');d.className='unit cab';d.textContent='🚋';tr.stack.appendChild(d);}
   tr.lbl.textContent = !tr.engine ? 'EMPTY'
@@ -434,28 +477,29 @@ function updateHud(){
   el('level').textContent=state.level;
   el('engines').textContent=state.engines;
   const chip=el('handChip');
-  if(state.hand){
-    chip.textContent='IN HAND: '+state.hand.cargo.icon+' '+state.hand.cargo.label;
-    chip.style.borderColor='var(--amber)';
-  } else {
-    chip.textContent='TAP A CAR TO GRAB';
-    chip.style.borderColor='var(--gold)';
-  }
+  const handLabel = !state.hand ? 'TAP A CAR TO GRAB'
+    : state.hand.kind==='wild' ? 'IN HAND: 🃏 WILD (joins any colour)'
+    : 'IN HAND: '+state.hand.cargo.icon+' '+state.hand.cargo.label;
+  chip.textContent=handLabel;
+  chip.style.borderColor=state.hand?'var(--amber)':'var(--gold)';
   const best=bestCloseableTrack();
   const cab=el('cabBtn');
   cab.disabled=!best||state.score<CABOOSE_COST;
-  cab.textContent = best
-    ? '🚋 CABOOSE '+CABOOSE_COST+' · '+best.cargo.label+' ×'+best.cars.length
-    : '🚋 CABOOSE '+CABOOSE_COST;
+  el('wildBtn').disabled=Boolean(state.hand)||state.score<WILD_COST;
+  let hint;
   if(state.closeLeft>0){
-    el('hint').textContent='Yard closing in '+state.closeLeft+'s — buy a caboose to get your train out';
+    hint='Yard closing in '+state.closeLeft+'s — buy a caboose to get your train out';
   } else if(state.running){
-    el('hint').textContent = state.train.length
-      ? 'Cars left on the train: '+state.train.length+' · engines in the shed: '+state.engines
-      : 'Train clear — finishing the level…';
+    if(state.train.length){
+      hint='Cars left on the train: '+state.train.length+' · engines in the shed: '+state.engines;
+      if(best) hint+=' · caboose ready: '+best.cargo.label+' ×'+best.cars.length+' (+'+trainValue(best.cars.length)+')';
+    } else {
+      hint='Train clear — finishing the level…';
+    }
   } else {
-    el('hint').textContent='Stand by…';
+    hint='Stand by…';
   }
+  el('hint').textContent=hint;
 }
 
 /* ── LEVEL LOOP ─────────────────────────────────────────────────────────── */
@@ -530,6 +574,15 @@ el('engBtn').addEventListener('click',()=>{
   if(state.score<ENGINE_COST){ toast('Need '+ENGINE_COST+' points to buy an engine'); return; }
   state.score-=ENGINE_COST; state.engines++;
   toast('🚂 Engine bought −'+ENGINE_COST); updateHud();
+});
+el('wildBtn').addEventListener('click',()=>{
+  if(!state.running) return;
+  if(state.hand){ toast('Place what you are holding first'); return; }
+  if(state.score<WILD_COST){ toast('Need '+WILD_COST+' points for a wild card'); return; }
+  state.score-=WILD_COST;
+  state.hand={kind:'wild'};
+  toast('🃏 Wild card bought −'+WILD_COST+' — tap a track that already has a colour');
+  updateHud();
 });
 el('cabBtn').addEventListener('click',()=>{
   if(!state.running) return;
