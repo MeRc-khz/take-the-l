@@ -78,6 +78,7 @@ button:active{transform:scale(.96);}
   <b>Tap the engines</b> on the train to save them. <b>Tap a car</b> to grab it, then <b>tap a track</b> to load it.<br><br>
   Cars arrive in colour batches of 2–5. A track only takes cars once it has an <b>engine</b>, and only one colour at a time — stack as long as you like.<br><br>
   At <b>3 cars or more</b>, buy a <b>caboose</b> to close the train and move it off the track so you can start another one. <b>The longer the train, the more it pays.</b><br><br>
+  Every train you send out also <b>backs the inbound train up one switchback level</b> — up to one level per track in the yard.<br><br>
   Engines and cabooses both cost points — <b>stack long, but don't strand a train.</b></p>
   <button id="startBtn">START SHIFT</button>
 </div>
@@ -106,7 +107,7 @@ const START_CREDITS=100;
 const CLOSE_GRACE_MS=6000;
 
 const state={running:false,level:1,score:START_CREDITS,engines:0,hand:null,
-             tracks:[],train:[],headS:0,speed:4,closeLeft:0,rescueGiven:false};
+             tracks:[],train:[],headS:0,speed:4,closeLeft:0,rescueGiven:false,backedUp:0};
 
 /* ── BABYLON: the zig-zag inbound train ─────────────────────────────────── */
 const TW=(function(){
@@ -142,7 +143,7 @@ const TW=(function(){
     for(let i=1;i<pts.length;i++){
       cum.push(cum[i-1]+Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y));
     }
-    return {pts,cum,len:cum[cum.length-1],tunnels};
+    return {pts,cum,len:cum[cum.length-1],tunnels,laneLen:(B-A)+step};
   }
   function fit(){
     const w=canvas.clientWidth||300, h=canvas.clientHeight||200;
@@ -264,7 +265,7 @@ const TW=(function(){
   engine.runRenderLoop(frame);
   window.addEventListener('resize',()=>{engine.resize();fit();});
   fit();
-  return {engine,scene,fit,makeMesh,get pathLen(){return path.len;}};
+  return {engine,scene,fit,makeMesh,get pathLen(){return path.len;},get laneLen(){return path.laneLen;}};
 })();
 
 /* ── TRAIN BUILDING ─────────────────────────────────────────────────────── */
@@ -368,11 +369,24 @@ function closeTrain(tr){
   const n=tr.cars.length, label=tr.cargo.label, pts=trainValue(n);
   setTimeout(()=>{
     state.score+=pts;
-    toast('🚋 '+label+' ×'+n+' moved out +'+pts);
+    const backed=backUpInbound();
+    toast('🚋 '+label+' ×'+n+' moved out +'+pts
+      +(backed?' · 🚂 inbound backed up '+state.backedUp+'/'+TRACK_COUNT:''));
     flash(tr,'flash-ok');
     resetTrack(tr);
     updateHud();
   },520);
+}
+/* A departing train lets the inbound consist back up one switchback level,
+   up to one level per track in the yard. */
+function backUpInbound(){
+  if(!state.train.length) return false;
+  if(state.backedUp>=TRACK_COUNT) return false;
+  const lane=TW.laneLen;
+  if(!lane) return false;
+  state.headS=Math.max(0,state.headS-lane);
+  state.backedUp++;
+  return true;
 }
 function bestCloseableTrack(){
   return state.tracks
@@ -484,6 +498,7 @@ function startLevel(){
   state.trainClearAt=0;
   state.closeLeft=0;
   state.rescueGiven=false;
+  state.backedUp=0;
   updateHud();
 }
 function endLevel(){
