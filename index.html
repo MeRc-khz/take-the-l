@@ -392,7 +392,7 @@ function maybeEndLevel(){
 function startLevel(){
   state.tracks.forEach(resetTrack);
   spawnTrain();
-  state.speed=3.8+state.level*0.35;
+  state.speed=2.1+(state.level-1)*0.7;   // L1 ≈ half the old 4.15, then ramps back up
   state.running=true;
   state.trainClearAt=0;
   state.rescueGiven=false;
