@@ -5,9 +5,9 @@ across the yard**, slips behind a tunnel to drop one train height, and comes
 back the other way — longer and with more engines the deeper you go.
 
 - **Tap the engines** on the train to save them into your shed.
-- **Tap a car** and you pick up **every car of that colour currently on the path**
-  with it, then **tap a vertical track** to load the lot. Tapping a bare track
-  while holding cars couples an engine first.
+- **Tap a car** and its whole **2–5 car group** comes with it, then **tap a
+  vertical track** to load the lot. Tapping a bare track while holding cars
+  couples an engine first.
 - Cars arrive in **colour batches of 2–5** and colours repeat, so a track can
   stack as long as you can feed it.
 - At **3 cars or more**, buy a **caboose** (10 pts) to close the train and move

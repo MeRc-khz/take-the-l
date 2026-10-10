@@ -77,7 +77,7 @@ button:active{transform:scale(.96);}
   <p>The inbound train <b>runs flat across the yard</b>, slips behind the tunnel
   to drop one train height, and comes back the other way. Each level sends a
   longer train with more engines to catch.<br><br>
-  <b>Tap the engines</b> on the train to save them. <b>Tap a car</b> and you pick up <b>every car of that colour</b> riding the path with it — then <b>tap a track</b> to load the lot.<br><br>
+  <b>Tap the engines</b> on the train to save them. <b>Tap a car</b> and its whole <b>2–5 car group</b> comes with it — then <b>tap a track</b> to load the lot.<br><br>
   Cars arrive in colour batches of 2–5. A track only takes cars once it has an <b>engine</b>, and only one colour at a time — stack as long as you like.<br><br>
   At <b>3 cars or more</b>, buy a <b>caboose</b> to close the train and move it off the track so you can start another one. <b>The longer the train, the more it pays.</b><br><br>
   Every train you send out also <b>backs the inbound train up one switchback level</b> — up to one level per track in the yard.<br><br>
@@ -115,7 +115,7 @@ const START_CREDITS=100;
 const CLOSE_GRACE_MS=6000;
 
 const state={running:false,level:1,score:START_CREDITS,engines:0,hand:null,
-             tracks:[],train:[],headS:0,speed:4,closeLeft:0,rescueGiven:false,backedUp:0};
+             tracks:[],train:[],headS:0,speed:4,closeLeft:0,rescueGiven:false,backedUp:0,groupSeq:0};
 
 /* ── BABYLON: the zig-zag inbound train ─────────────────────────────────── */
 const TW=(function(){
@@ -297,7 +297,8 @@ function buildTrain(level){
     // The first batch always carries 3+, so a closeable train exists from
     // level 1 even before colours start repeating.
     const n=(g===0?3+rndInt(3):2+rndInt(4));     // batch size 2..5
-    for(let i=0;i<n;i++) cars.push({kind:'car',cargo:c});
+    const groupId=++state.groupSeq;
+    for(let i=0;i<n;i++) cars.push({kind:'car',cargo:c,groupId});
     // a wild card occasionally rides along with a batch
     if(wilds<WILD_PER_LEVEL && Math.random()<WILD_CHANCE){ cars.push({kind:'wild'}); wilds++; }
   }
@@ -339,11 +340,13 @@ function tapTrainEntry(entry){
     updateHud();
     return;
   }
-  // A colour tap takes every car of that colour currently on the path with it.
-  const id=entry.cargo.id;
-  const sameColour=state.train.filter(e=>e.kind==='car'&&e.cargo.id===id
-    && typeof e.s==='number'&&e.s>=0&&e.s<=TW.pathLen);
-  const grabbed=sameColour.length?sameColour:[entry];
+  // A tap takes the whole batch that car belongs to — the 2–5 cars riding
+  // together — not every car of that colour further back on the consist.
+  const groupId=entry.groupId;
+  const batch=(groupId===undefined)
+    ? [entry]
+    : state.train.filter(e=>e.kind==='car'&&e.groupId===groupId);
+  const grabbed=batch.length?batch:[entry];
   grabbed.forEach(e=>{
     if(e.mesh) e.mesh.dispose();
     const i=state.train.indexOf(e);
@@ -404,8 +407,9 @@ function shuntTrack(tr){
   if(!state.running||tr.closing||!tr.cars.length) return;
   const n=tr.cars.length, penalty=n*SHUNT_PENALTY;
   state.score=Math.max(0,state.score-penalty);
+  const gid=++state.groupSeq;          // the shunted cars ride back as one batch
   tr.cars.forEach(c=>{
-    const entry={kind:'car',cargo:c.cargo};
+    const entry={kind:'car',cargo:c.cargo,groupId:gid};
     entry.mesh=TW.makeMesh(entry);
     entry.mesh.setEnabled(false);
     state.train.push(entry);           // tail of the consist
@@ -491,7 +495,7 @@ function updateHud(){
   el('level').textContent=state.level;
   el('engines').textContent=state.engines;
   const chip=el('handChip');
-  const handLabel = !state.hand ? 'TAP A CAR TO GRAB ITS WHOLE COLOUR'
+  const handLabel = !state.hand ? 'TAP A CAR TO GRAB ITS GROUP'
     : state.hand.kind==='wild' ? 'IN HAND: 🃏 WILD (joins any colour)'
     : 'IN HAND: '+state.hand.cargo.icon+' '+state.hand.cargo.label+' ×'+(state.hand.count||1);
   chip.textContent=handLabel;
