@@ -5,11 +5,15 @@ across the yard**, slips behind a tunnel to drop one train height, and comes
 back the other way — longer and with more engines the deeper you go.
 
 - **Tap the engines** on the train to save them into your shed.
-- **Tap a car** to grab it, then **tap a vertical track** to load it.
-- Cars arrive in **colour groups of 2–5**. A track only accepts cars once it has
-  an **engine**, takes one colour at a time, and ships the load (and empties)
-  when a whole group is aboard.
-- Out of engines? **Buy one with your points** (40).
+- **Tap a car** to grab it, then **tap a vertical track** to load it. Tapping a
+  bare track while holding a car couples an engine first.
+- Cars arrive in **colour batches of 2–5** and colours repeat, so a track can
+  stack as long as you can feed it.
+- At **3 cars or more**, buy a **caboose** (10 pts) to close the train and move
+  it off the track — that frees the track for the next train.
+  **The longer the train, the more it pays:** 3 cars 36 · 5 cars 100 · 8 cars 256.
+- Out of engines? **Buy one with your points** (40). Leave a train unclosed when
+  the inbound train clears and the yard gives you 6 seconds before scrapping it.
 
 Built with [Babylon.js](https://www.babylonjs.com/) (CDN) + vanilla HTML/CSS/JS.
 Single-file, zero build step.

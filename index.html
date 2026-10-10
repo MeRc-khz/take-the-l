@@ -33,8 +33,12 @@ header .stat b{color:var(--amber);}
 @keyframes ok{0%,100%{box-shadow:none}50%{box-shadow:inset 0 0 0 3px rgba(80,220,120,.85)}}
 @keyframes bad{0%,100%{box-shadow:none}50%{box-shadow:inset 0 0 0 3px rgba(220,60,60,.85)}}
 .track.flash-ok{animation:ok .4s}.track.flash-bad{animation:bad .4s}
-#hud{padding:6px 10px;background:var(--panel);border-top:2px solid var(--rail);display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:10px;}
+#hud{padding:6px 10px;background:var(--panel);border-top:2px solid var(--rail);display:flex;flex-direction:column;gap:5px;font-size:10px;}
 #hint{line-height:1.35;}
+#hudBtns{display:flex;gap:6px;}
+#hudBtns button{flex:1;font-size:11px;padding:8px 6px;}
+button:disabled{opacity:.42;}
+.unit.cab{height:26px;background:#f5efe4;}
 button{font-family:inherit;background:var(--amber);color:#14100c;border:none;padding:9px 12px;border-radius:8px;font-weight:bold;font-size:12px;letter-spacing:1px;}
 button:active{transform:scale(.96);}
 #toast{position:absolute;top:36%;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--gold);padding:6px 14px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .3s;z-index:60;white-space:nowrap;pointer-events:none;}
@@ -60,7 +64,10 @@ button:active{transform:scale(.96);}
 <div id="yard"></div>
 <div id="hud">
   <span id="hint">Tap engines to save them · tap a car then a track</span>
-  <button id="buyBtn">BUY ENGINE · 40</button>
+  <div id="hudBtns">
+    <button id="engBtn">🚂 ENGINE · 40</button>
+    <button id="cabBtn">🚋 CABOOSE · 25</button>
+  </div>
 </div>
 <div id="toast"></div>
 <div id="overlay">
@@ -69,8 +76,9 @@ button:active{transform:scale(.96);}
   to drop one train height, and comes back the other way. Each level sends a
   longer train with more engines to catch.<br><br>
   <b>Tap the engines</b> on the train to save them. <b>Tap a car</b> to grab it, then <b>tap a track</b> to load it.<br><br>
-  Cars arrive in colour groups of 2–5. A track only takes cars once it has an <b>engine</b>, and only one colour at a time — fill the whole group to ship it and empty the track.<br><br>
-  Out of engines? <b>Buy one with your points.</b></p>
+  Cars arrive in colour batches of 2–5. A track only takes cars once it has an <b>engine</b>, and only one colour at a time — stack as long as you like.<br><br>
+  At <b>3 cars or more</b>, buy a <b>caboose</b> to close the train and move it off the track so you can start another one. <b>The longer the train, the more it pays.</b><br><br>
+  Engines and cabooses both cost points — <b>stack long, but don't strand a train.</b></p>
   <button id="startBtn">START SHIFT</button>
 </div>
 </div>
@@ -88,15 +96,17 @@ const CARGO=[
  {id:'produce',label:'PRODUCE',color:'#7fd1c8',icon:'🥬'}
 ];
 const ENGINE_COST=40;     // points to buy a replacement engine
+const CABOOSE_COST=10;    // points to buy a caboose and move a train off the track
+const MIN_TRAIN_CARS=3;   // cars needed (after the engine) before a train can close
 const TRACK_COUNT=4;      // vertical tracks
 const SPACING=1.55;       // world distance between coupled cars
-const SHIP_PER_CAR=12;    // points per car in a shipped group
 const LOST_CAR=8;         // penalty per car that runs off the end
 const LEVEL_BONUS=50;
 const START_CREDITS=100;
+const CLOSE_GRACE_MS=6000;
 
 const state={running:false,level:1,score:START_CREDITS,engines:0,hand:null,
-             tracks:[],train:[],headS:0,speed:4};
+             tracks:[],train:[],headS:0,speed:4,closeLeft:0,rescueGiven:false};
 
 /* ── BABYLON: the zig-zag inbound train ─────────────────────────────────── */
 const TW=(function(){
@@ -261,24 +271,31 @@ const TW=(function(){
 function shuffled(a){const b=a.slice();for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;}
 function rndInt(n){return Math.floor(Math.random()*n);}
 
-/* Level shape: G colour groups (2–5 cars each, one colour per group) and one
-   engine per group — higher levels mean a longer train and more engines. */
+/* A train is a run of colour batches (2–5 cars each) with one engine per batch.
+   Colours may repeat, so the same colour can be stacked onto one track from
+   several batches — the longer the stack, the bigger the payout. */
 function buildTrain(level){
-  const G=Math.min(CARGO.length, 2+level);
-  const colours=shuffled(CARGO).slice(0,G);
+  const groups=Math.max(4, Math.min(8, 2+level));
   const cars=[];
-  colours.forEach(c=>{
-    const n=2+rndInt(4);                       // group size 2..5
-    for(let i=0;i<n;i++) cars.push({kind:'car',cargo:c,groupSize:n});
-  });
+  for(let g=0;g<groups;g++){
+    const c=CARGO[rndInt(CARGO.length)];
+    // The first batch always carries 3+, so a closeable train exists from
+    // level 1 even before colours start repeating.
+    const n=(g===0?3+rndInt(3):2+rndInt(4));     // batch size 2..5
+    for(let i=0;i<n;i++) cars.push({kind:'car',cargo:c});
+  }
   const engines=[];
-  for(let i=0;i<G;i++) engines.push({kind:'eng'});
-  const headCount=Math.max(1,Math.ceil(G/2));
+  for(let i=0;i<groups;i++) engines.push({kind:'eng'});
+  const headCount=Math.max(1,Math.ceil(groups/2));
   const order=[...engines.slice(0,headCount), ...shuffled(cars)];
   const tail=engines.slice(headCount);
   if(tail.length) order.splice(Math.floor(order.length*0.6),0,...tail);
   return order;
 }
+
+/* What a train pays when it leaves the track: every car pays, and cars past
+   the third pay progressively more, so length is what the player chases. */
+function trainValue(n){ return n*(12+4*Math.max(0,n-MIN_TRAIN_CARS)); }
 
 function spawnTrain(){
   state.train.forEach(e=>e.mesh&&e.mesh.dispose());
@@ -299,8 +316,8 @@ function tapTrainEntry(entry){
   if(state.hand){ toast('Already holding a car — place it first'); return; }
   state.train.splice(state.train.indexOf(entry),1);
   entry.mesh.dispose();
-  state.hand={kind:'car',cargo:entry.cargo,groupSize:entry.groupSize};
-  toast('Grabbed '+entry.cargo.label+' — '+entry.groupSize+'-car group');
+  state.hand={kind:'car',cargo:entry.cargo};
+  toast('Grabbed '+entry.cargo.label+' — tap a track');
   updateHud();
 }
 function loseCar(entry){
@@ -308,40 +325,62 @@ function loseCar(entry){
   if(entry.mesh) entry.mesh.dispose();
   if(entry.kind==='eng'){ toast('⚠ An engine ran through'); }
   else { state.score=Math.max(0,state.score-LOST_CAR); toast('⚠ '+entry.cargo.label+' lost off the end'); }
-  updateHud(); maybeEndLevel();
+  updateHud();
 }
 function tryInstallEngine(tr){
-  if(tr.engine) return;
+  if(tr.engine||tr.closing) return false;
   if(state.engines>0){ state.engines--; tr.engine=true; toast('🚂 Engine coupled'); }
   else if(state.score>=ENGINE_COST){ state.score-=ENGINE_COST; tr.engine=true; toast('🚂 Engine bought −'+ENGINE_COST); }
-  else { flash(tr,'flash-bad'); toast('No engines left — score '+ENGINE_COST+' to buy one'); return; }
+  else { flash(tr,'flash-bad'); toast('No engines left — score '+ENGINE_COST+' to buy one'); return false; }
   renderTrack(tr); updateHud();
+  return true;
 }
 function placeOnTrack(ti){
   if(!state.running) return;
   const tr=state.tracks[ti];
-  if(!state.hand){ tryInstallEngine(tr); return; }
+  if(tr.closing) return;
+  if(!state.hand){ trackAction(tr); return; }
   const e=state.hand;
-  if(!tr.engine){ flash(tr,'flash-bad'); toast('Cars only go on a track with an engine'); return; }
+  // Tapping a bare track while holding a car couples an engine first, so the
+  // held car is never a dead end.
+  if(!tr.engine && !tryInstallEngine(tr)) return;
   if(tr.cargo && tr.cargo.id!==e.cargo.id){ flash(tr,'flash-bad'); toast('Wrong colour — this track takes '+tr.cargo.label); return; }
-  if(!tr.cargo){ tr.cargo=e.cargo; tr.required=e.groupSize; }
-  if(tr.cars.length>=tr.required){ flash(tr,'flash-bad'); toast('That group is full'); return; }
+  if(!tr.cargo) tr.cargo=e.cargo;
   tr.cars.push({cargo:e.cargo});
   state.hand=null;
   renderTrack(tr); updateHud();
-  if(tr.cars.length===tr.required) shipGroup(tr);
-  else maybeEndLevel();
 }
-function shipGroup(tr){
-  const pts=tr.cars.length*SHIP_PER_CAR;
-  state.score+=pts;
-  toast('✅ '+tr.cargo.label+' group shipped +'+pts);
-  flash(tr,'flash-ok');
-  resetTrack(tr);            // the consist leaves with its engine — track is empty again
-  updateHud(); maybeEndLevel();
+/* A bare track tap: no engine → couple one; loaded train → buy the caboose. */
+function trackAction(tr){
+  if(!tr.engine){ tryInstallEngine(tr); return; }
+  if(tr.cars.length<MIN_TRAIN_CARS){
+    toast('Stack '+MIN_TRAIN_CARS+'+ cars, then buy a caboose to move it out');
+    return;
+  }
+  closeTrain(tr);
+}
+function closeTrain(tr){
+  if(!state.running||tr.closing||tr.cars.length<MIN_TRAIN_CARS) return;
+  if(state.score<CABOOSE_COST){ flash(tr,'flash-bad'); toast('Need '+CABOOSE_COST+' points for a caboose'); return; }
+  state.score-=CABOOSE_COST;
+  tr.closing=true;
+  renderTrack(tr); updateHud();
+  const n=tr.cars.length, label=tr.cargo.label, pts=trainValue(n);
+  setTimeout(()=>{
+    state.score+=pts;
+    toast('🚋 '+label+' ×'+n+' moved out +'+pts);
+    flash(tr,'flash-ok');
+    resetTrack(tr);
+    updateHud();
+  },520);
+}
+function bestCloseableTrack(){
+  return state.tracks
+    .filter(tr=>tr.engine && !tr.closing && tr.cars.length>=MIN_TRAIN_CARS)
+    .sort((a,b)=>b.cars.length-a.cars.length)[0] || null;
 }
 function resetTrack(tr){
-  tr.engine=false; tr.cargo=null; tr.required=0; tr.cars=[];
+  tr.engine=false; tr.cargo=null; tr.cars=[]; tr.closing=false;
   renderTrack(tr);
 }
 function flash(tr,cls){tr.el.classList.add(cls);setTimeout(()=>tr.el.classList.remove(cls),400);}
@@ -350,7 +389,7 @@ function flash(tr,cls){tr.el.classList.add(cls);setTimeout(()=>tr.el.classList.r
 function el(id){return document.getElementById(id);}
 function toast(msg){
   const t=el('toast'); t.textContent=msg; t.style.opacity=1;
-  clearTimeout(t._h); t._h=setTimeout(()=>t.style.opacity=0,1300);
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.opacity=0,1400);
 }
 function buildTracks(){
   const yard=el('yard'); yard.innerHTML=''; state.tracks=[];
@@ -361,7 +400,7 @@ function buildTracks(){
     d.addEventListener('click',()=>placeOnTrack(i));
     yard.appendChild(d);
     state.tracks.push({el:d,stack:d.querySelector('.stack'),lbl:d.querySelector('.lbl'),
-                       engine:false,cargo:null,required:0,cars:[]});
+                       engine:false,cargo:null,cars:[],closing:false});
   }
 }
 function renderTrack(tr){
@@ -372,9 +411,9 @@ function renderTrack(tr){
     const d=document.createElement('div');d.className='unit car';
     d.style.background=c.cargo.color;d.textContent=c.cargo.icon;tr.stack.appendChild(d);
   });
-  tr.lbl.textContent = tr.engine
-    ? (tr.cargo ? tr.cargo.icon+' '+tr.cargo.label+' '+tr.cars.length+'/'+tr.required : 'ENGINE READY')
-    : 'EMPTY';
+  if(tr.closing){const d=document.createElement('div');d.className='unit cab';d.textContent='🚋';tr.stack.appendChild(d);}
+  tr.lbl.textContent = !tr.engine ? 'EMPTY'
+    : (tr.cargo ? tr.cargo.icon+' '+tr.cargo.label+' ×'+tr.cars.length+(tr.closing?' · OUT':'') : 'ENGINE READY');
 }
 function updateHud(){
   el('score').textContent=state.score;
@@ -382,27 +421,37 @@ function updateHud(){
   el('engines').textContent=state.engines;
   const chip=el('handChip');
   if(state.hand){
-    chip.textContent='IN HAND: '+state.hand.cargo.icon+' '+state.hand.cargo.label+' ('+state.hand.groupSize+')';
+    chip.textContent='IN HAND: '+state.hand.cargo.icon+' '+state.hand.cargo.label;
     chip.style.borderColor='var(--amber)';
   } else {
     chip.textContent='TAP A CAR TO GRAB';
     chip.style.borderColor='var(--gold)';
   }
-  el('hint').textContent=state.running
-    ? (state.train.length
-        ? 'Cars left on the train: '+state.train.length+' · engines in shed: '+state.engines
-        : 'Train clear — finishing the level…')
-    : 'Stand by…';
+  const best=bestCloseableTrack();
+  const cab=el('cabBtn');
+  cab.disabled=!best||state.score<CABOOSE_COST;
+  cab.textContent = best
+    ? '🚋 CABOOSE '+CABOOSE_COST+' · '+best.cargo.label+' ×'+best.cars.length
+    : '🚋 CABOOSE '+CABOOSE_COST;
+  if(state.closeLeft>0){
+    el('hint').textContent='Yard closing in '+state.closeLeft+'s — buy a caboose to get your train out';
+  } else if(state.running){
+    el('hint').textContent = state.train.length
+      ? 'Cars left on the train: '+state.train.length+' · engines in the shed: '+state.engines
+      : 'Train clear — finishing the level…';
+  } else {
+    el('hint').textContent='Stand by…';
+  }
 }
 
 /* ── LEVEL LOOP ─────────────────────────────────────────────────────────── */
-/* Called every frame while running. It is the single authority on ending a
-   level, so a car stranded in hand (or an unaffordable engine) can never
-   freeze the game. */
+/* Called every frame while running, and the single authority on ending a
+   level — so a car stranded in hand, a stack waiting on a caboose, or an
+   unaffordable engine can never freeze the game. */
 function levelTick(){
   if(!state.running) return;
   if(state.train.length){
-    state.trainClearAt=0;
+    state.trainClearAt=0; state.closeLeft=0;
     // No engine anywhere, none in the shed, and one can't be afforded:
     // the railroad sends a spare rather than dead-ending the level.
     if(state.hand && state.engines===0 && state.score<ENGINE_COST
@@ -414,20 +463,18 @@ function levelTick(){
     }
     return;
   }
-  // Train is gone: give a short grace period to finish the placement in hand.
-  if(state.hand){
+  // The train is gone: keep the yard open briefly so trains can still be closed.
+  const waiting=Boolean(state.hand)
+    || state.tracks.some(tr=>tr.closing)
+    || (state.score>=CABOOSE_COST && Boolean(bestCloseableTrack()));
+  if(waiting){
     if(!state.trainClearAt) state.trainClearAt=performance.now();
-    else if(performance.now()-state.trainClearAt>2500){
-      toast('Held car scrapped — closing the level');
-      state.hand=null; updateHud();
-    }
-    return;
+    const left=Math.ceil((CLOSE_GRACE_MS-(performance.now()-state.trainClearAt))/1000);
+    if(left>0){ state.closeLeft=left; return; }
+    if(state.hand){ state.hand=null; toast('Held car scrapped — the yard is closing'); }
+    state.closeLeft=0;
   }
   endLevel();
-}
-function maybeEndLevel(){
-  if(!state.running) return;
-  if(state.train.length===0 && !state.hand) endLevel();
 }
 function startLevel(){
   state.tracks.forEach(resetTrack);
@@ -435,13 +482,14 @@ function startLevel(){
   state.speed=2.1+(state.level-1)*0.7;   // L1 ≈ half the old 4.15, then ramps back up
   state.running=true;
   state.trainClearAt=0;
+  state.closeLeft=0;
   state.rescueGiven=false;
   updateHud();
 }
 function endLevel(){
   if(!state.running) return;
   state.running=false;
-  state.hand=null;
+  state.hand=null; state.closeLeft=0;
   const left=state.tracks.reduce((n,tr)=>n+tr.cars.length,0);
   if(left){
     state.score=Math.max(0,state.score-left*4);
@@ -462,17 +510,23 @@ function startGame(){
 }
 
 el('startBtn').addEventListener('click',startGame);
-el('buyBtn').addEventListener('click',()=>{
+el('engBtn').addEventListener('click',()=>{
   if(!state.running) return;
   if(state.score<ENGINE_COST){ toast('Need '+ENGINE_COST+' points to buy an engine'); return; }
   state.score-=ENGINE_COST; state.engines++;
   toast('🚂 Engine bought −'+ENGINE_COST); updateHud();
 });
+el('cabBtn').addEventListener('click',()=>{
+  if(!state.running) return;
+  const tr=bestCloseableTrack();
+  if(!tr){ toast('Stack '+MIN_TRAIN_CARS+'+ cars on a track first'); return; }
+  closeTrain(tr);
+});
 el('handChip').addEventListener('click',()=>{
   if(!state.running||!state.hand) return;
   state.score=Math.max(0,state.score-2);
   toast('Dropped '+state.hand.cargo.label+' −2');
-  state.hand=null; updateHud(); maybeEndLevel();
+  state.hand=null; updateHud();
 });
 buildTracks(); updateHud();
 window.state=state; window.TW=TW;
